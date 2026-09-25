@@ -128,7 +128,7 @@ touch /etc/gai.conf
 sed -i '/^[[:space:]]*precedence[[:space:]]\+::ffff:0:0\/96/d' /etc/gai.conf
 echo "precedence ::ffff:0:0/96  100" >> /etc/gai.conf
 
-# 实际生效验证与安全兜底读取
+# 实际生效验证与安全兜底读取 (修正 awk '{print $3}' 读取第3列权重值)
 ACTUAL_CC=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "unknown")
 ACTUAL_QDISC=$(sysctl -n net.core.default_qdisc 2>/dev/null || echo "unknown")
 ACTUAL_RMEM=$(sysctl -n net.core.rmem_max 2>/dev/null || echo "0")
@@ -136,23 +136,23 @@ ACTUAL_TCP_RMEM=$(sysctl -n net.ipv4.tcp_rmem 2>/dev/null | tr '\t' ' ')
 ACTUAL_TCP_WMEM=$(sysctl -n net.ipv4.tcp_wmem 2>/dev/null | tr '\t' ' ')
 ACTUAL_PORTS=$(sysctl -n net.ipv4.ip_local_port_range 2>/dev/null | tr '\t' ' ')
 ACTUAL_FWD=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || echo "0")
-ACTUAL_GAI=$(grep '^[[:space:]]*precedence[[:space:]]\+::ffff:0:0/96' /etc/gai.conf | awk '{print $2}')
+ACTUAL_GAI=$(grep '^[[:space:]]*precedence[[:space:]]\+::ffff:0:0/96' /etc/gai.conf | awk '{print $3}')
 
 if [ "$HAS_WARN" -eq 0 ]; then
     echo -e "\n${GREEN}================== netfit 基线优化实际生效报告 (全部成功) ==================${RESET}"
 else
     echo -e "\n${YELLOW}================== netfit 基线优化实际生效报告 (部分告警) ==================${RESET}"
 fi
-printf "  %-22s : %s + %s\n" "拥塞控制与队列" "$ACTUAL_CC" "$ACTUAL_QDISC"
-printf "  %-22s : %d MB (rmem_max=%s)\n" "Socket 缓冲上限" "$(( ${ACTUAL_RMEM:-0} / 1048576 ))" "$ACTUAL_RMEM"
-printf "  %-22s : rmem=[%s] | wmem=[%s]\n" "TCP 读写缓冲范围" "$ACTUAL_TCP_RMEM" "$ACTUAL_TCP_WMEM"
-printf "  %-22s : %s (Pages)\n" "TCP 全局内存阈值" "$(sysctl -n net.ipv4.tcp_mem 2>/dev/null | tr '\t' ' ')"
-printf "  %-22s : TFO=%s | MTU探测=%s | 禁慢启动=%s | TW复用=%s\n" "TCP 特性开关" "$(sysctl -n net.ipv4.tcp_fastopen 2>/dev/null)" "$(sysctl -n net.ipv4.tcp_mtu_probing 2>/dev/null)" "$(sysctl -n net.ipv4.tcp_slow_start_after_idle 2>/dev/null)" "$(sysctl -n net.ipv4.tcp_tw_reuse 2>/dev/null)"
-printf "  %-22s : %s (保护 <10000 业务端口)\n" "本地临时端口范围" "$ACTUAL_PORTS"
-printf "  %-22s : somaxconn=%s | syn=%s | backlog=%s\n" "高并发队列基线" "$(sysctl -n net.core.somaxconn 2>/dev/null)" "$(sysctl -n net.ipv4.tcp_max_syn_backlog 2>/dev/null)" "$(sysctl -n net.core.netdev_max_backlog 2>/dev/null)"
-printf "  %-22s : %s\n" "IPv4 内核转发" "$ACTUAL_FWD"
-printf "  %-22s : limits.d 与 systemd 默认上限 65535 (新启动服务生效)\n" "最大文件句柄数"
-printf "  %-22s : SystemMaxUse=1G (当前占用: %s)\n" "系统日志限制" "$(journalctl --disk-usage 2>/dev/null | awk '{print $7}')"
-printf "  %-22s : 权重 %s\n" "IPv4 优先状态" "${ACTUAL_GAI:-未生效}"
-printf "  %-22s : %s\n" "当前系统时间" "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+echo "  拥塞控制与队列   : ${ACTUAL_CC} + ${ACTUAL_QDISC}"
+echo "  最大缓冲上限值   : $(( ${ACTUAL_RMEM:-0} / 1048576 )) MB (rmem_max=${ACTUAL_RMEM})"
+echo "  读写缓冲范围值   : rmem=[${ACTUAL_TCP_RMEM}] | wmem=[${ACTUAL_TCP_WMEM}]"
+echo "  全局内存阈值页   : $(sysctl -n net.ipv4.tcp_mem 2>/dev/null | tr '\t' ' ') (Pages)"
+echo "  协议栈特性开关   : TFO=$(sysctl -n net.ipv4.tcp_fastopen 2>/dev/null) | MTU探测=$(sysctl -n net.ipv4.tcp_mtu_probing 2>/dev/null) | 禁慢启动=$(sysctl -n net.ipv4.tcp_slow_start_after_idle 2>/dev/null) | TW复用=$(sysctl -n net.ipv4.tcp_tw_reuse 2>/dev/null)"
+echo "  本地临时端口池   : ${ACTUAL_PORTS} (保护 <10000 业务端口)"
+echo "  高并发队列基线   : somaxconn=$(sysctl -n net.core.somaxconn 2>/dev/null) | syn=$(sysctl -n net.ipv4.tcp_max_syn_backlog 2>/dev/null) | backlog=$(sysctl -n net.core.netdev_max_backlog 2>/dev/null)"
+echo "  内核数据包转发   : net.ipv4.ip_forward = ${ACTUAL_FWD}"
+echo "  最大文件句柄数   : limits.d 与 systemd 默认上限 65535 (新启动服务生效)"
+echo "  系统日志上限值   : SystemMaxUse=1G (当前占用: $(journalctl --disk-usage 2>/dev/null | awk '{print $7}'))"
+echo "  出站协议优先级   : IPv4 优先 (权重 ${ACTUAL_GAI:-未生效})"
+echo "  当前系统标准时   : $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo -e "${GREEN}============================================================================${RESET}"
