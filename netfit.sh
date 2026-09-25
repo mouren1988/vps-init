@@ -159,17 +159,14 @@ journalctl --vacuum-size=1G >/dev/null 2>&1 || true
 echo -e "${CYAN}>>> [4/4] 正在统一系统时区为 Asia/Shanghai 并设置 IPv4 优先权重 100...${RESET}"
 timedatectl set-timezone Asia/Shanghai || HAS_WARN=1
 
-# [时间同步自动修复补丁] 确保轻量级时间同步服务可用并立即校准
-if ! systemctl list-unit-files | grep -q timesyncd; then
-    apt-get update -qq && apt-get install -y -qq systemd-timesyncd >/dev/null 2>&1
-fi
-systemctl enable --now systemd-timesyncd 2>/dev/null || true
+# 【安全极速对时】不通过 apt 下载，直接利用系统原生能力强制校准
 timedatectl set-ntp true 2>/dev/null || true
+systemctl restart systemd-timesyncd 2>/dev/null || true
 
-# 动态检测时间同步服务是否成功激活
+# 动态检测时间同步状态（不卡网、秒级完成）
 TIME_SYNC_STATUS="未同步"
 if timedatectl status 2>/dev/null | grep -q "System clock synchronized: yes"; then
-    TIME_SYNC_STATUS="已同步 (自动NTP校准中)"
+    TIME_SYNC_STATUS="已同步 (NTP校准中)"
 fi
 
 touch /etc/gai.conf
