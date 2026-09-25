@@ -134,12 +134,13 @@ mkdir -p "$WorkDir"
 WorkFile="$WorkDir/$BaseName"
 
 SCRIPT_PATH=$(realpath "$0")
-if ! grep -q "$BaseName" /etc/crontab; then
+if ! grep -q "^[[:space:]]*\* \* \* \* \*.*$BaseName" /etc/crontab; then
+    sed -i "/$BaseName/d;/开机时立即运行一次转发脚本/d;/每分钟持续检测并维护转发规则/d;/\[节点转发\]/d" /etc/crontab
     cat << EOF >> /etc/crontab
 
-# [节点转发] 开机自动恢复
+# [节点转发] 开机自动恢复与每分钟动态检测
 @reboot   root  bash $SCRIPT_PATH
-# * * * * * root  bash $SCRIPT_PATH
+* * * * * root  bash $SCRIPT_PATH
 EOF
     echo -e "${GREEN}定时任务已同步至 /etc/crontab${NC}"
 fi
