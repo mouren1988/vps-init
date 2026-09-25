@@ -167,9 +167,9 @@ systemctl enable --now systemd-timesyncd 2>/dev/null || true
 timedatectl set-ntp true 2>/dev/null || true
 
 # 动态检测时间同步服务是否成功激活
-TIME_SYNC_STATUS="未启用/不支持"
-if systemctl is-active --quiet systemd-timesyncd 2>/dev/null || timedatectl status 2>/dev/null | grep -q "NTP service: active"; then
-    TIME_SYNC_STATUS="已激活 (自动NTP校准中)"
+TIME_SYNC_STATUS="未同步"
+if timedatectl status 2>/dev/null | grep -q "System clock synchronized: yes"; then
+    TIME_SYNC_STATUS="已同步 (自动NTP校准中)"
 fi
 
 touch /etc/gai.conf
