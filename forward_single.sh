@@ -175,7 +175,7 @@ for list in "${Single_Rule[@]}"; do list=($list); echo ${list[2]} >> $WorkFile.d
 if [ -f "$WorkFile.domain" ]; then
     Domain=$(sort $WorkFile.domain | uniq | grep -v -E '([0-9]{1,3}[\.]){3}[0-9]{1,3}')
     for d in $Domain; do
-        d_ip=$(host -4 -t A -W 2 $d 1.1.1.1 | grep "has address" | awk '{print $NF}' | head -1)
+        d_ip=$(host -4 -t A -W 2 $d | grep "has address" | awk '{print $NF}' | head -1)
         [ "$d_ip" ] && echo "$d $d_ip" >> $WorkFile.hosts
     done
 fi
