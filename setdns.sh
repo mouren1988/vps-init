@@ -110,58 +110,73 @@ EOF
     show_dns_status
 }
 
-# ================= 一级主菜单 =================
-clear
-echo "=========================================="
-echo "          DNS 优化与修改工具"
-show_dns_status
-echo "1. 国外 DNS 优化 (默认)"
-echo "2. 国内 DNS 优化"
-echo "------------------------------------------"
-echo "0. 退出脚本"
-echo "=========================================="
-read -p "请输入你的选择 [0-2] (默认: 1): " region_choice
-region_choice=${region_choice:-1}
+# ================= 菜单主循环 =================
+while true; do
+    # 一级主菜单
+    clear
+    echo "=========================================="
+    echo "          DNS 优化与修改工具"
+    show_dns_status
+    echo "1. 国外 DNS 优化 (Cloudflare & Google) [默认]"
+    echo "2. 国内 DNS 优化 (阿里 & 腾讯)"
+    echo "------------------------------------------"
+    echo "0. 退出脚本"
+    echo "=========================================="
+    read -p "请输入你的选择 [0-2] (默认: 1): " region_choice
+    region_choice=${region_choice:-1}
 
-if [ "$region_choice" = "0" ]; then
-    echo "退出脚本。"
-    exit 0
-elif [ "$region_choice" != "1" ] && [ "$region_choice" != "2" ]; then
-    echo "❌ 无效的选择！"
-    exit 1
-fi
+    if [ "$region_choice" = "0" ]; then
+        echo "退出脚本。"
+        exit 0
+    elif [ "$region_choice" != "1" ] && [ "$region_choice" != "2" ]; then
+        echo "❌ 无效的选择，请重新输入！"
+        sleep 1
+        continue
+    fi
 
-# ================= 二级模式菜单 =================
-echo "------------------------------------------"
-echo "请选择 DNS 解析模式："
-echo "1. 加密 DNS DoT (默认)"
-echo "2. 普通 DNS"
-echo "------------------------------------------"
-read -p "请输入模式选择 [1-2] (默认: 1): " mode_choice
-mode_choice=${mode_choice:-1}
+    # 二级模式菜单
+    echo "------------------------------------------"
+    echo "请选择 DNS 解析模式："
+    echo "1. 加密 DNS [DoT 853端口 - 防劫持/防污染] [默认]"
+    echo "2. 普通 DNS [传统 53端口 - 明文直接解析]"
+    echo "3. 返回上级菜单"
+    echo "------------------------------------------"
+    read -p "请输入模式选择 [1-3] (默认: 1): " mode_choice
+    mode_choice=${mode_choice:-1}
 
-# ================= 执行逻辑 =================
-case "${region_choice}-${mode_choice}" in
-    1-1)
-        apply_dot_dns \
-            "1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 8.8.8.8#dns.google" \
-            "9.9.9.9#dns.quad9.net" \
-            "国外加密 DNS (CF & Google DoT)"
-        ;;
-    1-2)
-        apply_plain_dns "1.1.1.1" "8.8.8.8" "国外普通 DNS (1.1.1.1 & 8.8.8.8)"
-        ;;
-    2-1)
-        apply_dot_dns \
-            "223.5.5.5#dns.alidns.com 223.6.6.6#dns.alidns.com 1.12.12.12#dot.pub" \
-            "120.53.53.53#dot.pub" \
-            "国内加密 DNS (阿里 & 腾讯 DoT)"
-        ;;
-    2-2)
-        apply_plain_dns "223.5.5.5" "119.29.29.29" "国内普通 DNS (223.5.5.5 & 119.29.29.29)"
-        ;;
-    *)
-        echo "❌ 无效的模式选择！"
-        exit 1
-        ;;
-esac
+    # 选择 3 则跳出本次循环，返回一级主菜单
+    if [ "$mode_choice" = "3" ]; then
+        continue
+    fi
+
+    # 执行逻辑
+    case "${region_choice}-${mode_choice}" in
+        1-1)
+            apply_dot_dns \
+                "1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 8.8.8.8#dns.google" \
+                "9.9.9.9#dns.quad9.net" \
+                "国外加密 DNS (CF & Google DoT)"
+            break
+            ;;
+        1-2)
+            apply_plain_dns "1.1.1.1" "8.8.8.8" "国外普通 DNS (1.1.1.1 & 8.8.8.8)"
+            break
+            ;;
+        2-1)
+            apply_dot_dns \
+                "223.5.5.5#dns.alidns.com 223.6.6.6#dns.alidns.com 1.12.12.12#dot.pub" \
+                "120.53.53.53#dot.pub" \
+                "国内加密 DNS (阿里 & 腾讯 DoT)"
+            break
+            ;;
+        2-2)
+            apply_plain_dns "223.5.5.5" "119.29.29.29" "国内普通 DNS (223.5.5.5 & 119.29.29.29)"
+            break
+            ;;
+        *)
+            echo "❌ 无效的模式选择，正在返回主菜单..."
+            sleep 1
+            continue
+            ;;
+    esac
+done
