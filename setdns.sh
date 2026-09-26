@@ -55,10 +55,12 @@ EOF
             echo "正在解除锁定并打开编辑器..."
             chattr -i /etc/resolv.conf 2>/dev/null
             vim /etc/resolv.conf
-            read -p "是否需要重新加锁防篡改？(y/n): " lock_choice
+            read -p "是否需要加锁防篡改？(Y/n，默认Y): " lock_choice
+            # 如果用户直接回车（即 lock_choice 为空），则将其默认设为 y
+            lock_choice=${lock_choice:-y}
             if [ "$lock_choice" = "y" ] || [ "$lock_choice" = "Y" ]; then
                 chattr +i /etc/resolv.conf
-                echo "已重新加锁！"
+                echo "已加锁！"
             else
                 echo "未加锁。"
             fi
