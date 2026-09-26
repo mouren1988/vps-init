@@ -75,7 +75,7 @@ apply_plain_dns() {
     local dns_ips="$1"
     local desc="$2"
 
-    echo "正在配置 ${desc}..."
+    #echo "正在配置 ${desc}..."
     prepare_plain_env
 
     > /etc/resolv.conf
