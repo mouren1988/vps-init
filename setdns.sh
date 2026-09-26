@@ -183,7 +183,7 @@ while true; do
             sleep 1
             continue
             ;;
-    endcase
+    esac
 
     # 二级模式菜单
     echo "------------------------------------------"
