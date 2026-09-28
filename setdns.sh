@@ -22,6 +22,11 @@ if ! flock -n 9; then
     exit 1
 fi
 
+# 如果是通过 bash <(curl ...) 临时运行的，自动将自身安装到 /usr/local/bin/setdns
+if [[ "$0" == /dev/fd/* ]] && [ ! -f /usr/local/bin/setdns ]; then
+    curl -fsSL https://raw.githubusercontent.com/mouren1988/vps-init/main/setdns.sh -o /usr/local/bin/setdns 2>/dev/null && chmod +x /usr/local/bin/setdns
+fi
+
 ORIG_DNS_FILE="/etc/resolv.conf.orig"
 
 TX_ACTIVE=0
