@@ -16,15 +16,15 @@ if ! command -v ss >/dev/null 2>&1; then
 fi
 
 mkdir -p /run/lock
-exec 9>/run/lock/setdns.lock
+exec 9>/run/lock/dnstool.lock
 if ! flock -n 9; then
-    echo "❌ 检测到另一个 setdns.sh 实例正在运行，请勿并发执行！"
+    echo "❌ 检测到另一个 dnstool 实例正在运行，请勿并发执行！"
     exit 1
 fi
 
-# 如果是通过 bash <(curl ...) 临时运行的，自动将自身安装到 /usr/local/bin/setdns
-if [[ "$0" == /dev/fd/* ]] && [ ! -f /usr/local/bin/setdns ]; then
-    curl -fsSL https://raw.githubusercontent.com/mouren1988/vps-init/main/setdns.sh -o /usr/local/bin/setdns 2>/dev/null && chmod +x /usr/local/bin/setdns
+# 如果是通过 bash <(curl ...) 临时运行的，自动将自身安装到 /usr/local/bin/dnstool
+if [[ "$0" == /dev/fd/* ]] && [ ! -f /usr/local/bin/dnstool ]; then
+    curl -fsSL https://raw.githubusercontent.com/mouren1988/vps-init/main/setdns.sh -o /usr/local/bin/dnstool 2>/dev/null && chmod +x /usr/local/bin/dnstool
 fi
 
 ORIG_DNS_FILE="/etc/resolv.conf.orig"
@@ -567,6 +567,76 @@ show_dns_status() {
     echo "------------------------------------------"
 }
 
+watch_dns_live() {
+    if ! command -v tcpdump >/dev/null 2>&1; then
+        echo "检测到未安装 tcpdump，正在自动安装..."
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update && apt-get install -y tcpdump
+    fi
+
+    local iface
+    iface=$(grep -q "127.0.0.1" /etc/resolv.conf 2>/dev/null && echo lo || ip -o -4 route show to default | awk '{print $5; exit}')
+    echo "🔍 正在实时监听 DNS 解析 (监听网卡: ${iface}，按 Ctrl+C 退出)..."
+    trap ':' INT
+    tcpdump -i "$iface" udp port 53 -nn -l 2>/dev/null | awk -W interactive 'function to_ms(t, a) { split(t, a, ":"); return (a[1]*3600 + a[2]*60 + a[3])*1000 }
+/ A\? / {
+    tx = $6; sub(/[^0-9].*$/, "", tx); id = $3 ":" tx;
+    qtime[id] = to_ms($1);
+    cip = $3; sub(/\.[0-9]+$/, "", cip); client[id] = cip;
+    for(i=1;i<=NF;i++) if($i=="A?") dom[id] = $(i+1);
+}
+$3 ~ /\.53$/ {
+    dst = $5; sub(/:$/, "", dst); tx = $6; sub(/[^0-9].*$/, "", tx); id = dst ":" tx;
+    if (id in qtime) {
+        dt = to_ms($1) - qtime[id];
+        ips = "";
+        for(i=7;i<=NF;i++) if($i=="A") { ip=$(i+1); sub(/,$/, "", ip); ips = (ips=="" ? ip : ips ", " ip) }
+        if (ips != "") printf "[%s] %s query %-30s | time: %d ms (%.2fms) | result: %s\n", substr($1,1,12), client[id], dom[id], int(dt+0.5), dt, ips;
+        delete qtime[id]; delete dom[id]; delete client[id];
+    }
+}'
+    trap on_signal_interrupt INT
+}
+
+watch_smartdns_prefetch() {
+    if ! command -v tcpdump >/dev/null 2>&1; then
+        echo "检测到未安装 tcpdump，正在自动安装..."
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update && apt-get install -y tcpdump
+    fi
+
+    trap ':' INT
+    if grep -q "^server-https" /etc/smartdns/smartdns.conf 2>/dev/null; then
+        echo "⚠️ 当前为 [1-1 加密 DoH 模式]，上游走 443 加密隧道，无法通过 UDP 53 抓包！请先输入 dnstool 切换为 [1-2 明文模式] 再试。"
+    else
+        IFACE=$(ip -o -4 route show to default | awk '{print $5; exit}')
+        echo "🔄 正在监听外网主网卡 ($IFACE) 向外网 DNS 发起的查询与后台预读 (按 Ctrl+C 退出)..."
+        tcpdump -i "$IFACE" udp port 53 -nn -l 2>/dev/null | awk -W interactive '
+        function to_ms(t, a) { split(t, a, ":"); return (a[1]*3600 + a[2]*60 + a[3])*1000 }
+        / A\? / && $5 ~ /\.53:$/ {
+            dst = $5; sub(/:$/, "", dst);
+            tx = $6; sub(/[^0-9].*$/, "", tx);
+            id = $3 ">" dst ":" tx;
+            qtime[id] = to_ms($1);
+            for(i=1;i<=NF;i++) if($i=="A?") dom[id] = $(i+1);
+        }
+        $3 ~ /\.53$/ && $3 != "127.0.0.1.53" {
+            dst = $5; sub(/:$/, "", dst);
+            tx = $6; sub(/[^0-9].*$/, "", tx);
+            id = dst ">" $3 ":" tx;
+            if (id in qtime) {
+                dt = to_ms($1) - qtime[id];
+                dns = $3; sub(/\.53$/, "", dns);
+                ips = "";
+                for(i=7;i<=NF;i++) if($i=="A") { ip=$(i+1); sub(/,$/, "", ip); ips = (ips=="" ? ip : ips ", " ip) }
+                if (ips != "") printf "[%s] 🌐 上游(%-9s) 响应 %-30s | 耗时: %d ms (%.2fms) | 结果: %s\n", substr($1,1,12), dns, dom[id], int(dt+0.5), dt, ips;
+                delete qtime[id]; delete dom[id];
+            }
+        }'
+    fi
+    trap on_signal_interrupt INT
+}
+
 lock_dns_prompt() {
     read -p "是否锁定配置文件防止被系统重置？[Y/n] (默认: Y): " lock_choice
     lock_choice=${lock_choice:-Y}
@@ -847,10 +917,12 @@ while true; do
     echo "3. 自定义 DNS"
     echo "4. 一键恢复机器原厂默认 DNS 地址"
     echo "5. 文件解锁 (解除配置文件 +i 锁定)"
+    echo "6. DNS 解析实时监控"
+    echo "7. SmartDNS 预读与上游监控"
     echo "------------------------------------------"
     echo "0. 退出脚本"
     echo "=========================================="
-    read -p "请输入你的选择 [0-5] (默认: 1): " region_choice
+    read -p "请输入你的选择 [0-7] (默认: 1): " region_choice
     region_choice=${region_choice:-1}
 
     case "$region_choice" in
@@ -976,6 +1048,14 @@ while true; do
             fi
             echo -e "\n📊 解锁后最新状态："
             show_dns_status
+            break
+            ;;
+        6)
+            watch_dns_live
+            break
+            ;;
+        7)
+            watch_smartdns_prefetch
             break
             ;;
         *)
