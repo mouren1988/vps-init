@@ -740,15 +740,15 @@ serve-expired-reply-ttl 1
 # serve-expired-prefetch-time 28800
 
 # SmartDNS提供了两种测速模式，分别是ping和tcp。smartdns默认使用三次测速。第一次为ping，第二次为tcp的80端口，第三次为tcp的443端口
-# speed-check-mode tcp:443,tcp:80.ping
+speed-check-mode tcp:443,tcp:80.ping
 # [关闭节点测速] 禁用 Ping/TCP 测速，避免首次解析被迫等待测速完成而产生数百毫秒的首包卡顿
-speed-check-mode none
+# speed-check-mode none
 
 # response-mode三种模式
 # response-mode first-ping 默认
-# response-mode fastest-ip 最佳
+response-mode fastest-ip 最佳
 # [最快响应模式] 多个上游 DNS 并发查询时，谁最先返回结果就立即采用谁，实现最低查询延迟与天然主备容灾
-response-mode fastest-response
+# response-mode fastest-response
 
 # [禁用 IPv6 解析] 强制对 IPv6 (AAAA) 查询直接返回 SOA，防止纯 IPv4 机器或单栈代理因等待 IPv6 超时而转圈卡顿
 force-AAAA-SOA yes
