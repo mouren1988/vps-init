@@ -740,7 +740,7 @@ serve-expired-reply-ttl 1
 # serve-expired-prefetch-time 28800
 
 # SmartDNS提供了两种测速模式，分别是ping和tcp。smartdns默认使用三次测速。第一次为ping，第二次为tcp的80端口，第三次为tcp的443端口
-speed-check-mode tcp:443,tcp:80.ping
+speed-check-mode tcp:443,tcp:80,ping
 # [关闭节点测速] 禁用 Ping/TCP 测速，避免首次解析被迫等待测速完成而产生数百毫秒的首包卡顿
 # speed-check-mode none
 
