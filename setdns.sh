@@ -739,9 +739,14 @@ serve-expired-reply-ttl 1
 # [过期预取窗口] 已过期的缓存在 28800 秒（8小时）内若曾被访问过，后台仍会定期主动刷新 IP，防止隔夜上线拿到失效旧 IP
 # serve-expired-prefetch-time 28800
 
+# SmartDNS提供了两种测速模式，分别是ping和tcp。smartdns默认使用三次测速。第一次为ping，第二次为tcp的80端口，第三次为tcp的443端口
+# speed-check-mode tcp:443,tcp:80.ping
 # [关闭节点测速] 禁用 Ping/TCP 测速，避免首次解析被迫等待测速完成而产生数百毫秒的首包卡顿
 speed-check-mode none
 
+# response-mode三种模式
+# response-mode first-ping 默认
+# response-mode fastest-ip 最佳
 # [最快响应模式] 多个上游 DNS 并发查询时，谁最先返回结果就立即采用谁，实现最低查询延迟与天然主备容灾
 response-mode fastest-response
 
