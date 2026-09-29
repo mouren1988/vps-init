@@ -705,9 +705,6 @@ apply_smartdns() {
     mkdir -p /etc/smartdns
     local tmp_conf="/etc/smartdns/smartdns.conf.tmp.$$"
     cat << 'EOF' > "$tmp_conf"
-mkdir -p /etc/smartdns
-    local tmp_conf="/etc/smartdns/smartdns.conf.tmp.$$"
-    cat << 'EOF' > "$tmp_conf"
 # =================================================================
 # SmartDNS 极速缓存优化配置 (1C1G 轻量级防劫持 / 游戏加速秒开参数)
 # =================================================================
