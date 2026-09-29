@@ -601,17 +601,21 @@ $3 ~ /\.53$/ {
 
 watch_smartdns_prefetch() {
     if ! command -v tcpdump >/dev/null 2>&1; then
-        echo "检测到未安装 tcpdump，正在自动安装..."
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update && apt-get install -y tcpdump
+    echo "检测到未安装 tcpdump，正在自动安装..."
+    export DEBIAN_FRONTEND=noninteractive
+
+    if ! apt-get update && apt-get install -y tcpdump; then
+        echo "❌ tcpdump 安装失败，无法启动 DNS 实时监控！"
+        return 1
     fi
+fi
 
     trap ':' INT
     if grep -q "^server-https" /etc/smartdns/smartdns.conf 2>/dev/null; then
         echo "⚠️ 当前为 [1-1 加密 DoH 模式]，上游走 443 加密隧道，无法通过 UDP 53 抓包！请先输入 dnstool 切换为 [1-2 明文模式] 再试。"
     else
         IFACE=$(ip -o -4 route show to default | awk '{print $5; exit}')
-        echo "🔄 正在监听外网主网卡 ($IFACE) 向外网 DNS 发起的查询与后台预读 (按 Ctrl+C 退出)..."
+        echo "🔄 正在监听外网主网卡 ($IFACE) 发出的上游 DNS 查询（包括预取/缓存刷新） (按 Ctrl+C 退出)..."
         tcpdump -i "$IFACE" udp port 53 -nn -l 2>/dev/null | awk -W interactive '
         function to_ms(t, a) { split(t, a, ":"); return (a[1]*3600 + a[2]*60 + a[3])*1000 }
         / A\? / && $5 ~ /\.53:$/ {
@@ -784,9 +788,9 @@ apply_smartdns() {
 bind 127.0.0.1:53
 
 # [最大并发保护] 限制最大并发查询请求数为 2048，防止异常程序疯狂发起 DNS 请求撑爆 1C1G 内存
-# max-query-limit 2048
+max-query-limit 2048
 
-# [内存缓存上限] 最多缓存 16384 条域名记录（常驻内存仅约 10MB~15MB，满额自动按 LRU 淘汰旧记录，绝不内存泄漏）
+# [内存缓存上限] 最多缓存 16384 条域名记录，满额后按缓存策略淘汰旧记录
 cache-size 16384
 
 # [禁止缓存落盘] 强制关闭磁盘持久化，保持 100% 纯内存缓存运行，重启服务即彻底清空旧缓存并减少磁盘写入
@@ -801,7 +805,7 @@ serve-expired yes
 # [过期保留时限] 闲置过期的缓存最多保留 86400 秒（24小时），超过 24 小时无人访问则从内存中彻底删除释放
 serve-expired-ttl 86400
 
-# [救急缓存有效期] 使用过期旧 IP 救急时，告知系统该记录仅在 1 秒内有效；后台几十毫秒内完成刷新后，1 秒后无缝切入最新 IP
+# [救急缓存 TTL] 返回过期缓存时仅给客户端 1 秒 TTL，促使客户端快速重新查询；同时 SmartDNS 异步尝试刷新上游
 serve-expired-reply-ttl 1
 
 # [过期预取窗口] 已过期的缓存在 28800 秒（8小时）内若曾被访问过，后台仍会定期主动刷新 IP，防止隔夜上线拿到失效旧 IP
