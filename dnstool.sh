@@ -23,8 +23,9 @@ if ! flock -n 9; then
 fi
 
 # 如果是通过 bash <(curl ...) 临时运行的，自动将自身安装到 /usr/local/bin/dnstool
-if [[ "$0" == /dev/fd/* ]] && [ ! -f /usr/local/bin/dnstool ]; then
-    curl -fsSL https://raw.githubusercontent.com/mouren1988/vps-init/main/setdns.sh -o /usr/local/bin/dnstool 2>/dev/null && chmod +x /usr/local/bin/dnstool
+if [[ "$0" == /dev/fd/* ]]; then
+    rm -f /usr/local/bin/setdns /run/lock/setdns.lock
+    curl -fsSL "https://raw.githubusercontent.com/mouren1988/vps-init/main/dnstool.sh?$RANDOM" -o /usr/local/bin/dnstool 2>/dev/null && chmod +x /usr/local/bin/dnstool
 fi
 
 ORIG_DNS_FILE="/etc/resolv.conf.orig"
