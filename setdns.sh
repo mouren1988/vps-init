@@ -740,15 +740,15 @@ serve-expired-reply-ttl 1
 # serve-expired-prefetch-time 28800
 
 # SmartDNS提供了两种测速模式，分别是ping和tcp。优先测443端口，其次80端口，最后ping
-speed-check-mode tcp:443,tcp:80,ping
+# speed-check-mode tcp:443,tcp:80,ping
 # [关闭节点测速] 禁用 Ping/TCP 测速，避免首次解析被迫等待测速完成而产生数百毫秒的首包卡顿
-# speed-check-mode none
+speed-check-mode none
 
 # response-mode三种模式：first-ping(默认) / fastest-ip(最佳IP) / fastest-response(最快响应)
 # response-mode first-ping
-response-mode fastest-ip
+# response-mode fastest-ip
 # [最快响应模式] 多个上游 DNS 并发查询时，谁最先返回结果就立即采用谁，实现最低查询延迟与天然主备容灾
-# response-mode fastest-response
+response-mode fastest-response
 
 # [禁用 IPv6 解析] 强制对 IPv6 (AAAA) 查询直接返回 SOA，防止纯 IPv4 机器或单栈代理因等待 IPv6 超时而转圈卡顿
 force-AAAA-SOA yes
@@ -879,18 +879,19 @@ while true; do
             case "${region_choice}-${mode_choice}" in
                 1-1)
                     apply_smartdns "doh" \
-                        "https://1.1.1.1/dns-query https://8.8.8.8/dns-query https://9.9.9.11/dns-query https://94.140.14.140/dns-query" \
+                        # "https://1.1.1.1/dns-query https://8.8.8.8/dns-query https://9.9.9.11/dns-query https://94.140.14.140/dns-query" \
+                        "https://1.1.1.1/dns-query https://1.0.0.1/dns-query" \
                         "国外加密 DNS (DoH + SmartDNS 缓存)"
                     break
                     ;;
                 1-2)
                     apply_smartdns "plain" \
-                        "1.1.1.1 8.8.8.8 9.9.9.11 168.126.63.1" \
+                        "1.1.1.1 1.0.0.1" \
                         "国外明文 DNS (SmartDNS 缓存优化)"
                     break
                     ;;
                 1-3)
-                    apply_plain_dns "1.1.1.1 8.8.8.8 168.126.63.1" "国外普通明文 DNS (不使用 SmartDNS)"
+                    apply_plain_dns "1.1.1.1 1.0.0.1" "国外普通明文 DNS (不使用 SmartDNS)"
                     break
                     ;;
                 2-1)
