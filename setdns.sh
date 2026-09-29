@@ -879,7 +879,7 @@ while true; do
             case "${region_choice}-${mode_choice}" in
                 1-1)
                     apply_smartdns "doh" \
-                        "https://1.1.1.1/dns-query https://8.8.8.8/dns-query https://9.9.9.11/dns-query https://1.0.0.1/dns-query" \
+                        "https://1.1.1.1/dns-query https://8.8.8.8/dns-query https://9.9.9.11/dns-query https://94.140.14.140/dns-query" \
                         "国外加密 DNS (DoH + SmartDNS 缓存)"
                     break
                     ;;
