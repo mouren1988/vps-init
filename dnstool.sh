@@ -956,7 +956,7 @@ while true; do
                     ;;
                 1-2)
                     apply_smartdns "plain" \
-                        "1.1.1.1 1.0.0.1" \
+                        "1.1.1.1 8.8.8.8 168.126.63.1" \
                         "国外明文 DNS (SmartDNS 缓存优化)"
                     break
                     ;;
