@@ -18,8 +18,17 @@ fi
 mkdir -p /run/lock
 exec 9>/run/lock/dnstool.lock
 if ! flock -n 9; then
-    echo "❌ 检测到另一个 dnstool 实例正在运行，请勿并发执行！"
-    exit 1
+    # 如果没有正在执行写入事务的快照目录，说明只是旧 SSH 窗口残留的菜单或 tcpdump 监控，自动清理并接管
+    if ! ls -d /run/lock/setdns_snap.* >/dev/null 2>&1; then
+        pkill -9 -f "tcpdump.*port 53" 2>/dev/null
+        fuser -k -9 /run/lock/dnstool.lock >/dev/null 2>&1
+        sleep 0.2
+    fi
+    exec 9>/run/lock/dnstool.lock
+    if ! flock -n 9; then
+        echo "❌ 检测到另一个 dnstool 实例正在修改配置，请勿并发执行！"
+        exit 1
+    fi
 fi
 
 # 如果是通过 bash <(curl ...) 临时运行的，自动将自身安装到 /usr/local/bin/dnstool
@@ -392,6 +401,8 @@ on_script_exit() {
             exit 1
         fi
     fi
+    pkill -P $$ 2>/dev/null
+    exec 9>&- 2>/dev/null
     exit "$exit_code"
 }
 
