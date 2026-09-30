@@ -5,22 +5,32 @@
 
 set -u
 
-VERSION="3.8"
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
-WORK_DIR="${SCRIPT_DIR:-$(pwd)}"
+VERSION="3.9"
+
+# 解决 bash <(curl ...) 管道运行导致 /dev/fd 虚拟路径报错的问题
+DETECTED_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+if [[ -z "$DETECTED_DIR" || "$DETECTED_DIR" =~ ^/dev/fd ]]; then
+  WORK_DIR="$(pwd)"
+else
+  WORK_DIR="$DETECTED_DIR"
+fi
 DOMAIN_FILE="${WORK_DIR}/gmcdn_domains.conf"
 
 # ========================== 置顶核心可调参数 ================================
+# 1. 默认游戏真实测速大文件 URL (若日后官方更新安装包版本号，直接修改此行即可)
 DEFAULT_GAME_TEST_URL="http://gs-purple.download.ncupdate.com/Purple/PurpleInstaller_2_25_1029_8.exe"
+
+# 2. AWS 官方测速包 (当上方游戏安装包失效时，自动无缝切换此链接兜底)
 AWS_FALLBACK_URL="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
 
+# 3. 测速与筛选阈值
 CONNECT_TIMEOUT=3       # 连接超时(秒)
 PROBE_TIMEOUT=4         # 域名校验超时(秒)
 SPEED_TIMEOUT=6         # 单个IP下载测速时长(秒)
 TOP_IPS=5               # 每个域名最多保留几个 AWS 黄金 IP
 MIN_SPEED_MB=10.0       # AWS 节点最低合格速度 (MB/s)
 
-# 默认待测 IP 池 (精简至实测最佳 4 节点)
+# 4. 默认待测 IP 池 (精简至实测最佳 4 节点)
 DEFAULT_IPS=(
   "3.166.228.50"
   "54.239.163.107"
@@ -28,7 +38,7 @@ DEFAULT_IPS=(
   "99.86.18.105"
 )
 
-# 内置游戏域名列表 (默认只保留 Purple 和 Stove)
+# 5. 内置游戏域名列表 (默认只保留 Purple 和 Stove)
 BUILTIN_DOMAIN_LINES=(
   "Purple|gs-purple.download.ncupdate.com"
   "Stove|eclipsepc-dl.game.onstove.com"
@@ -132,6 +142,7 @@ load_domains() {
 
 load_default_ips() {
   TEST_IPS=()
+  local ip
   for ip in "${DEFAULT_IPS[@]}"; do is_ipv4 "$ip" && TEST_IPS+=("$ip"); done
 }
 
@@ -256,7 +267,7 @@ test_ip_benchmark() {
 # ----------------------------- 核心流程 -------------------------------------
 discover_ips() {
   local sdom ecs endpoint response
-  local out="${TMP_DIR}/discovered.txt"
+  local out="$(mktemp)"
   : > "$out"
 
   msg "${CYAN}>>> 正在通过国内三网 ECS 获取最新亚太 AWS CloudFront 节点...${RESET}"
@@ -272,6 +283,8 @@ discover_ips() {
 
   # 核心：自动提取唯一的 /24 C段代表，极大减少重复测试的时间！
   mapfile -t TEST_IPS < <(cat "$out" | unique_c_class_ips)
+  rm -f "$out"
+
   if [[ ${#TEST_IPS[@]} -eq 0 ]]; then
     msg "${RED}>>> 未能获取到新候选 IP。${RESET}"
     return 1
@@ -437,12 +450,17 @@ add_domain() {
 
 show_config() {
   load_domains
+  msg "\n${CYAN}--- 默认测速大文件 URL ---${RESET}"
+  msg "  $DEFAULT_GAME_TEST_URL"
   msg "\n${CYAN}--- 当前监控的游戏域名 (${#DOMAIN_LINES[@]} 个) ---${RESET}"
   local line tag domain
   for line in "${DOMAIN_LINES[@]}"; do
     IFS='|' read -r tag domain <<< "$line"
     printf '  [%-8s] %s\n' "$tag" "$domain"
   done
+  msg "\n${CYAN}--- 本地存储路径 ---${RESET}"
+  msg "  工作目录: $WORK_DIR"
+  msg "  域名配置: $DOMAIN_FILE"
 }
 
 run_daily() { 
