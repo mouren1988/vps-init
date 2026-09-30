@@ -1,26 +1,14 @@
 #!/usr/bin/env bash
 # ============================================================================
-# 游戏 CDN / CloudFront 直连优选工具
+# 游戏 CDN / CloudFront 直连优选工具 (极简版)
 # ============================================================================
 
 set -u
 
-VERSION="3.7"
-
-# 解决 bash <(curl ...) 管道运行导致 /dev/fd 虚拟路径报错的问题
-DETECTED_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
-if [[ -z "$DETECTED_DIR" || "$DETECTED_DIR" =~ ^/dev/fd ]]; then
-  # 若在线管道运行，数据保存在执行命令时的当前真实物理目录
-  WORK_DIR="$(pwd)"
-else
-  WORK_DIR="$DETECTED_DIR"
-fi
-
+VERSION="3.8"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+WORK_DIR="${SCRIPT_DIR:-$(pwd)}"
 DOMAIN_FILE="${WORK_DIR}/gmcdn_domains.conf"
-IP_POOL_FILE="${WORK_DIR}/gmcdn_ip_pool.txt"
-OUTPUT_FILE="${WORK_DIR}/mihomo_hosts.yaml"
-TMP_DIR="$(mktemp -d -t gmcdn.XXXXXX)"
-trap 'rm -rf "$TMP_DIR"' EXIT
 
 # ========================== 置顶核心可调参数 ================================
 DEFAULT_GAME_TEST_URL="http://gs-purple.download.ncupdate.com/Purple/PurpleInstaller_2_25_1029_8.exe"
@@ -31,9 +19,8 @@ PROBE_TIMEOUT=4         # 域名校验超时(秒)
 SPEED_TIMEOUT=6         # 单个IP下载测速时长(秒)
 TOP_IPS=5               # 每个域名最多保留几个 AWS 黄金 IP
 MIN_SPEED_MB=10.0       # AWS 节点最低合格速度 (MB/s)
-KEEP_NON_AWS=2          # 每个域名最多保留几个高速非 AWS 备用节点 (>=5MB/s才保留)
 
-# 默认待测 IP 池
+# 默认待测 IP 池 (精简至实测最佳 4 节点)
 DEFAULT_IPS=(
   "3.166.228.50"
   "54.239.163.107"
@@ -41,7 +28,7 @@ DEFAULT_IPS=(
   "99.86.18.105"
 )
 
-# 内置游戏域名列表
+# 内置游戏域名列表 (默认只保留 Purple 和 Stove)
 BUILTIN_DOMAIN_LINES=(
   "Purple|gs-purple.download.ncupdate.com"
   "Stove|eclipsepc-dl.game.onstove.com"
@@ -66,7 +53,7 @@ AWS_SEED_DOMAINS=(
 )
 
 # ----------------------------- 颜色与工具 -----------------------------------
-GREEN="\033[32m"; RED="\033[31m"; YELLOW="\033[33m"; CYAN="\033[36m"; RESET="\033[0m"
+GREEN="\033[32m"; RED="\033[31m"; YELLOW="\033[33m"; CYAN="\033[36m"; BLUE="\033[34m"; RESET="\033[0m"
 msg() { printf '%b\n' "$*"; }
 
 is_ipv4() {
@@ -88,9 +75,11 @@ extract_ipv4s() {
     | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' || true
 }
 
-unique_ips() {
+# 核心：自动提取唯一的 /24 C段 IP，防止同机房几十个孪生 IP 拖慢测速
+unique_c_class_ips() {
   tr '[:space:]' '\n' | awk 'NF && !seen[$0]++' \
-    | while read -r ip; do is_ipv4 "$ip" && echo "$ip"; done | sort -V -u
+    | while read -r ip; do is_ipv4 "$ip" && echo "$ip"; done \
+    | awk -F'.' '{c=$1"."$2"."$3; if(!c_seen[c]++) print $0}' | sort -V
 }
 
 translate_pop() {
@@ -106,16 +95,6 @@ translate_pop() {
   esac
 }
 
-get_non_aws_desc() {
-  local ip="$1"
-  case "$ip" in
-    14.0.43.11)    echo "日本/大阪/cdnetworks.com" ;;
-    2.17.106.198)  echo "新加坡/akamai.com" ;;
-    47.52.50.183)  echo "必来CDN" ;;
-    *)             echo "第三方备用CDN" ;;
-  esac
-}
-
 parse_url() {
   local url="$1" scheme host rest port
   scheme="${url%%://*}"; rest="${url#*://}"; host="${rest%%/*}"
@@ -127,7 +106,6 @@ parse_url() {
 # ----------------------------- 运行时数据 -----------------------------------
 declare -a DOMAIN_LINES=()
 declare -a TEST_IPS=()
-declare -a DISCOVERED_IPS=()
 declare -A IP_CLASS=() IP_POP=() IP_SPEED=() IP_PING=()
 declare -A DOMAIN_RESULTS=()
 ACTIVE_GAME_URL="$DEFAULT_GAME_TEST_URL"
@@ -136,7 +114,6 @@ ensure_domain_file() {
   [[ -f "$DOMAIN_FILE" ]] && return
   {
     echo "# 每行格式：简称|游戏下载域名"
-    echo "# 示例：L2韩服|l2kor.ncupdate.com"
   } > "$DOMAIN_FILE" 2>/dev/null || true
 }
 
@@ -153,26 +130,9 @@ load_domains() {
   fi
 }
 
-load_ip_pool() {
+load_default_ips() {
   TEST_IPS=()
-  local ip
   for ip in "${DEFAULT_IPS[@]}"; do is_ipv4 "$ip" && TEST_IPS+=("$ip"); done
-  if [[ -f "$IP_POOL_FILE" ]]; then
-    while read -r ip; do
-      [[ -z "$ip" || "$ip" =~ ^# ]] && continue
-      is_ipv4 "$ip" && TEST_IPS+=("$ip")
-    done < "$IP_POOL_FILE"
-  fi
-  mapfile -t TEST_IPS < <(printf '%s\n' "${TEST_IPS[@]}" | sort -V -u)
-}
-
-save_ip_pool() {
-  local all="${TMP_DIR}/all_ips.txt"
-  { printf '%s\n' "${DEFAULT_IPS[@]}"; printf '%s\n' "${DISCOVERED_IPS[@]}"; } | unique_ips > "$all"
-  {
-    echo "# gmcdn discovered IP pool; generated $(date '+%Y-%m-%d %H:%M:%S')"
-    cat "$all"
-  } > "${IP_POOL_FILE}.new" 2>/dev/null && mv -f "${IP_POOL_FILE}.new" "$IP_POOL_FILE" || true
 }
 
 check_default_game_url() {
@@ -189,7 +149,7 @@ check_default_game_url() {
   fi
 }
 
-# ----------------------------- 严格回源校验 ---------------------------------
+# ----------------------------- 回源指纹校验与测速 ---------------------------
 verify_payload() {
   local domain="$1" http="$2" content="$3" pop="$4"
   [[ "$http" == "000" || -z "$http" ]] && return 1
@@ -206,13 +166,8 @@ verify_payload() {
       [[ "$http" == "200" ]] && printf '%s\n' "$content" | grep -qiE '(c5d86b27c8a9d91|Microsoft-IIS)' && return 0
       return 1
       ;;
-    *.ncupdate.com)
-      printf '%s\n' "$content" | grep -qiE '(<Code>AccessDenied</Code>|Server:[[:space:]]*AmazonS3|x-amz-bucket-region:)' && return 0
-      return 1
-      ;;
     *)
-      [[ "$http" =~ ^(200|206|301|302)$ ]] && return 0
-      printf '%s\n' "$content" | grep -qiE '(<Code>AccessDenied</Code>|Server:[[:space:]]*AmazonS3)' && return 0
+      printf '%s\n' "$content" | grep -qiE '(<Code>AccessDenied</Code>|Server:[[:space:]]*AmazonS3|x-amz-bucket-region:)' && return 0
       return 1
       ;;
   esac
@@ -237,23 +192,6 @@ probe_domain() {
     printf '1|%s|%s|HTTPS\n' "$(ms_from_sec "$tcp")" "$pop"
     return 0
   fi
-
-  out="$(curl --noproxy '*' -sS -i \
-    --connect-timeout "$CONNECT_TIMEOUT" --max-time "$PROBE_TIMEOUT" \
-    --resolve "$domain:80:$ip" \
-    -w $'\n__GMCDN__|%{http_code}|%{time_connect}\n' \
-    "http://$domain/" 2>/dev/null || true)"
-
-  marker="$(printf '%s\n' "$out" | grep '^__GMCDN__|' | tail -1 || true)"
-  http="$(printf '%s' "$marker" | cut -d'|' -f2)"; [[ -n "$http" ]] || http=000
-  tcp="$(printf '%s' "$marker" | cut -d'|' -f3)";  [[ -n "$tcp" ]]  || tcp=0
-  pop="$(printf '%s\n' "$out" | tr -d '\r' | awk 'tolower($0) ~ /^x-amz-cf-pop:/ {print $2; exit}')"
-
-  if verify_payload "$domain" "$http" "$out" "$pop"; then
-    printf '1|%s|%s|HTTP\n' "$(ms_from_sec "$tcp")" "$pop"
-    return 0
-  fi
-
   printf '0|0||NONE\n'
   return 1
 }
@@ -275,10 +213,7 @@ speed_test() {
   tcp="$(printf '%s' "$marker" | cut -d'|' -f3)";   [[ -n "$tcp" ]]   || tcp=0
   http="$(printf '%s' "$marker" | cut -d'|' -f4)";  [[ -n "$http" ]]  || http=000
 
-  if [[ "$http" != "200" && "$http" != "206" ]]; then
-    speed=0
-  fi
-
+  if [[ "$http" != "200" && "$http" != "206" ]]; then speed=0; fi
   printf '%s|%s\n' "$(mb_from_bytes_per_sec "$speed")" "$(ms_from_sec "$tcp")"
 }
 
@@ -315,18 +250,11 @@ test_ip_benchmark() {
     [[ "$s_tcp" =~ ^[0-9]+$ && "$s_tcp" -gt 0 ]] && IP_PING[$ip]="$s_tcp"
   else
     IP_CLASS[$ip]="OTHER"
-    if [[ -n "$ACTIVE_GAME_URL" ]]; then
-      local sr spd s_tcp
-      sr="$(speed_test "$ip" "$ACTIVE_GAME_URL")"
-      IFS='|' read -r spd s_tcp <<< "$sr"
-      IP_SPEED[$ip]="${spd:-0.00}"
-      [[ "$s_tcp" =~ ^[0-9]+$ && "$s_tcp" -gt 0 ]] && IP_PING[$ip]="$s_tcp"
-    fi
   fi
 }
 
+# ----------------------------- 核心流程 -------------------------------------
 discover_ips() {
-  DISCOVERED_IPS=()
   local sdom ecs endpoint response
   local out="${TMP_DIR}/discovered.txt"
   : > "$out"
@@ -342,14 +270,13 @@ discover_ips() {
     done
   done
 
-  mapfile -t DISCOVERED_IPS < <(cat "$out" | unique_ips)
-  if [[ ${#DISCOVERED_IPS[@]} -eq 0 ]]; then
-    msg "${RED}>>> 未能获取到新候选 IP，将继续使用现有 IP 池。${RESET}"
+  # 核心：自动提取唯一的 /24 C段代表，极大减少重复测试的时间！
+  mapfile -t TEST_IPS < <(cat "$out" | unique_c_class_ips)
+  if [[ ${#TEST_IPS[@]} -eq 0 ]]; then
+    msg "${RED}>>> 未能获取到新候选 IP。${RESET}"
     return 1
   fi
-
-  save_ip_pool
-  msg "${GREEN}>>> 成功提取到 ${#DISCOVERED_IPS[@]} 个候选 IP，已合并保存至本地！${RESET}\n"
+  msg "${GREEN}>>> 成功提取到 ${#TEST_IPS[@]} 个不同 C段的优质候选 IP 代表！${RESET}\n"
   return 0
 }
 
@@ -361,17 +288,12 @@ reset_runtime() {
 store_domain_result() {
   local domain="$1" value="$2"
   local old="${DOMAIN_RESULTS[$domain]-}"
-  if [[ -n "$old" ]]; then
-    DOMAIN_RESULTS[$domain]="${old}\n${value}"
-  else
-    DOMAIN_RESULTS[$domain]="$value"
-  fi
+  if [[ -n "$old" ]]; then DOMAIN_RESULTS[$domain]="${old}\n${value}"
+  else DOMAIN_RESULTS[$domain]="$value"; fi
 }
 
-# ----------------------------- 彻底解决中英混排对齐问题 -----------------------
 run_all_tests() {
   load_domains
-  load_ip_pool
   reset_runtime
   check_default_game_url
 
@@ -379,10 +301,9 @@ run_all_tests() {
   local total_doms=${#DOMAIN_LINES[@]}
   (( total_ips == 0 )) && { msg "${RED}没有可测试 IP。${RESET}"; return 1; }
 
-  # 使用纯 ASCII 定制表头，彻底规避各类终端中英宽度不一致导致的歪斜错位
   local border="======================================================================================================="
   msg "${CYAN}${border}${RESET}"
-  printf "%-15s | %-32s | %-10s | %-6s | %-12s | %-s\n" \
+  printf "%-15s | %-36s | %-8s | %-6s | %-12s | %-s\n" \
     "IP Address" "DataCenter / Region" "Protocol" "Ping" "Speed(MB/s)" "Compatible"
   msg "${CYAN}${border}${RESET}"
 
@@ -393,7 +314,7 @@ run_all_tests() {
     test_ip_benchmark "$ip"
 
     local pass_cnt=0
-    local any_https=0 any_http=0
+    local any_https=0
     local bench_speed="${IP_SPEED[$ip]-0.00}"
     local cls="${IP_CLASS[$ip]-OTHER}"
     local pop="${IP_POP[$ip]-}"
@@ -406,7 +327,7 @@ run_all_tests() {
 
       [[ "$ok" != "1" ]] && continue
       ((pass_cnt++))
-      [[ "$proto" == "HTTPS" ]] && any_https=1 || any_http=1
+      [[ "$proto" == "HTTPS" ]] && any_https=1
 
       if [[ "$proto" == "HTTPS" && -z "$pop" && -n "$d_pop" ]]; then
         pop="$d_pop"; IP_POP[$ip]="$pop"; cls="AWS"; IP_CLASS[$ip]="AWS"
@@ -423,12 +344,11 @@ run_all_tests() {
     if [[ "$cls" == "AWS" && -n "$pop" ]]; then
       region="$(translate_pop "$pop") ($pop)"
     else
-      region="$(get_non_aws_desc "$ip")"
+      region="第三方备用CDN"
     fi
 
     local proto_str="TIMEOUT"
-    if (( any_https == 1 )); then proto_str="HTTPS+HTTP"
-    elif (( any_http == 1 )); then proto_str="HTTP Only"; fi
+    if (( any_https == 1 )); then proto_str="HTTPS"; fi
 
     local compat_str="${pass_cnt}/${total_doms}"
     local compat_color="$YELLOW"
@@ -444,15 +364,13 @@ run_all_tests() {
     awk "BEGIN {exit !($bench_speed >= $MIN_SPEED_MB)}" && spd_color="$GREEN"
     awk "BEGIN {exit !($bench_speed < 2.0)}" && spd_color="$RED"
 
-    # 对机房名称进行截断补齐，防止超长打乱网格
-    printf "%-15s | %-32.32s | %-10s | %4sms | ${spd_color}%7s MB/s${RESET} | ${compat_color}%-10s${RESET}\n" \
+    printf "%-15s | %-36s | %-8s | %4sms | ${spd_color}%7s MB/s${RESET} | ${compat_color}%-10s${RESET}\n" \
       "$ip" "$region" "$proto_str" "${IP_PING[$ip]-0}" "$bench_speed" "$compat_str"
   done
 
   msg "${CYAN}${border}${RESET}"
 }
 
-# ----------------------------- 智能去重与极简生成 ---------------------------
 select_for_domain() {
   local domain="$1"
   local raw="${DOMAIN_RESULTS[$domain]-}"
@@ -461,33 +379,24 @@ select_for_domain() {
   printf '%b\n' "$raw" | awk -F'|' -v min_spd="$MIN_SPEED_MB" '
     {
       ip=$1; cls=$2; pop=$3; proto=$4; tcp=$5+0; spd=$6+0;
-      split(ip, a, "."); subnet = a[1]"."a[2]"."a[3];
       if (cls == "AWS" && spd < min_spd) next;
-      if (cls != "AWS" && spd < 5.0) next;
-      print cls "|" spd "|" tcp "|" ip "|" pop "|" subnet
+      if (cls != "AWS") next; # 纯净版只保留 AWS 节点
+      print cls "|" spd "|" tcp "|" ip "|" pop
     }
-  ' | sort -t'|' -k1,1 -k2,2nr -k3,3n | awk -F'|' -v top_n="$TOP_IPS" -v keep_other="$KEEP_NON_AWS" '
+  ' | sort -t'|' -k1,1 -k2,2nr -k3,3n | awk -F'|' -v top_n="$TOP_IPS" '
     {
-      cls=$1; spd=$2; tcp=$3; ip=$4; pop=$5; subnet=$6;
-      if (seen_sub[subnet]++) next;
+      cls=$1; spd=$2; tcp=$3; ip=$4; pop=$5;
       if (pop != "" && seen_pop[pop]++) next;
-
-      if (cls == "AWS") {
-        if (aws_cnt < top_n) { aws_cnt++; print ip "|AWS|" pop "|" spd }
-      } else {
-        if (other_cnt < keep_other) { other_cnt++; print ip "|OTHER||" spd }
-      }
+      if (aws_cnt < top_n) { aws_cnt++; print ip "|" pop "|" spd }
     }
   '
 }
 
+# ----------------------------- 输出极简 hosts -------------------------------
 generate_hosts() {
-  load_domains
-  : > "$OUTPUT_FILE" 2>/dev/null || true
-
-  local hosts_content=""
-  hosts_content+="hosts:\n"
-  hosts_content+="  # === 下载CDN加速 (跨机房去重精简版，完美配合 tcp-concurrent) ===\n"
+  echo ""
+  msg "${YELLOW}hosts:${RESET}"
+  msg "${YELLOW}  # === 游戏下载 CDN 自动优选配置 (完美配合 tcp-concurrent) ===${RESET}"
 
   local line tag domain selected
   for line in "${DOMAIN_LINES[@]}"; do
@@ -495,28 +404,15 @@ generate_hosts() {
     selected="$(select_for_domain "$domain")"
     [[ -z "$selected" ]] && continue
 
-    hosts_content+="  '$domain':\n"
-    while IFS='|' read -r ip cls pop spd; do
-      if [[ "$cls" == "AWS" && -n "$pop" ]]; then
-        local reg
-        reg="$(translate_pop "$pop")"
-        hosts_content+=$(printf "    - %-17s # %s (%s 实测%sMB/s)\n" "$ip" "$reg" "$pop" "$spd")
-      else
-        local desc
-        desc="$(get_non_aws_desc "$ip")"
-        hosts_content+=$(printf "    - %-17s # %s (实测%sMB/s)\n" "$ip" "$desc" "$spd")
-      fi
+    msg "${YELLOW}  '${domain}':${RESET}"
+    while IFS='|' read -r ip pop spd; do
+      local reg="$(translate_pop "$pop")"
+      printf "${YELLOW}    - %-15s # %s (%s 实测%sMB/s)${RESET}\n" "$ip" "$reg" "$pop" "$spd"
     done <<< "$selected"
-    hosts_content+="\n"
+    echo ""
   done
-
-  echo ""
-  printf "%b" "$hosts_content"
-  printf "%b" "$hosts_content" > "$OUTPUT_FILE" 2>/dev/null || true
-  msg "${GREEN}>>> 极简 hosts 配置已生成并保存至：${OUTPUT_FILE}${RESET}"
 }
 
-# ----------------------------- 新增域名与菜单 -------------------------------
 add_domain() {
   ensure_domain_file
   local tag domain
@@ -535,29 +431,34 @@ add_domain() {
     printf '%s|%s\n' "$tag" "$domain" >> "$DOMAIN_FILE" 2>/dev/null || true
     msg "${GREEN}>>> 已保存至配置文件！立即为你开始巡检：${RESET}\n"
   fi
+  load_default_ips
   run_daily
 }
 
 show_config() {
-  load_domains; load_ip_pool
-  msg "\n${CYAN}--- 默认测速大文件 URL ---${RESET}"
-  msg "  $DEFAULT_GAME_TEST_URL"
+  load_domains
   msg "\n${CYAN}--- 当前监控的游戏域名 (${#DOMAIN_LINES[@]} 个) ---${RESET}"
   local line tag domain
   for line in "${DOMAIN_LINES[@]}"; do
     IFS='|' read -r tag domain <<< "$line"
     printf '  [%-8s] %s\n' "$tag" "$domain"
   done
-  msg "\n${CYAN}--- 当前候选 IP 池 (${#TEST_IPS[@]} 个) ---${RESET}"
-  printf '  %s\n' "${TEST_IPS[@]}"
-  msg "\n${CYAN}--- 本地存储路径 ---${RESET}"
-  msg "  工作目录: $WORK_DIR"
-  msg "  域名配置: $DOMAIN_FILE"
-  msg "  输出文件: $OUTPUT_FILE"
 }
 
-run_daily()  { msg "\n${CYAN}>>> 开始默认IP检查...${RESET}"; run_all_tests; generate_hosts; }
-run_auto()   { msg "\n${CYAN}>>> 开始自动优选IP (ECS)...${RESET}"; discover_ips || true; run_all_tests; generate_hosts; }
+run_daily() { 
+  msg "\n${CYAN}>>> 开始默认IP检查...${RESET}"
+  load_default_ips
+  run_all_tests
+  generate_hosts
+}
+
+run_auto() { 
+  msg "\n${CYAN}>>> 开始自动优选IP (按 C段 过滤重复机房)...${RESET}"
+  discover_ips || { load_default_ips; }
+  run_all_tests
+  generate_hosts
+}
+
 run_custom() {
   local -a custom=()
   echo ""
@@ -566,7 +467,8 @@ run_custom() {
   TEST_IPS=()
   local ip
   for ip in "${custom[@]}"; do is_ipv4 "$ip" && TEST_IPS+=("$ip"); done
-  run_all_tests; generate_hosts
+  run_all_tests
+  generate_hosts
 }
 
 case "${1:-menu}" in
@@ -578,13 +480,13 @@ case "${1:-menu}" in
   *)
     clear 2>/dev/null || true
     msg "${CYAN}==============================================================${RESET}"
-    msg "${CYAN}         游戏下载 CloudFront / CDN 优选系统 v${VERSION}        ${RESET}"
+    msg "${CYAN}         NCSoft / Stove 游戏下载 CDN 优选系统 v${VERSION}        ${RESET}"
     msg "${CYAN}==============================================================${RESET}"
-    msg " 1. ${GREEN}默认优选检查${RESET}     (测试现有 IP 池 + 生成极简 hosts)"
-    msg " 2. ${YELLOW}自动优选IP${RESET}      (通过国内三网 ECS 抓取新 AWS 节点并优选)"
-    msg " 3. ${YELLOW}自定义测速${RESET}      (手动输入新找到的 IP 进行体检与测速)"
-    msg " 4. ${YELLOW}新增游戏域名${RESET}    (永久添加新游戏域名并立即生成最新 hosts)"
-    msg " 5. ${GREEN}查看当前配置${RESET}     (查看测速 URL、已保存的游戏域名与 IP 池)"
+    msg " 1. ${GREEN}默认IP检查${RESET}     (测试现有 4 个黄金 IP + 生成 hosts)"
+    msg " 2. ${YELLOW}自动优选IP${RESET}     (通过国内三网提取最新 AWS 并智能排重)"
+    msg " 3. ${YELLOW}自定义测速${RESET}   (手动输入新找到的 IP 进行体检与测速)"
+    msg " 4. ${YELLOW}新增游戏域名${RESET} (永久添加新游戏域名并立即生成最新 hosts)"
+    msg " 5. ${BLUE}查看当前配置${RESET} (查看已保存的游戏域名列表)"
     msg " 0. 退出"
     msg "${CYAN}==============================================================${RESET}"
     read -r -p "请输入菜单编号 [0-5]: " choice
