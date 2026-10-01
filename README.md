@@ -13,11 +13,11 @@ Linux (Debian / Ubuntu) 服务器内核网络与系统基线优化脚本。
 - **日志管理**：通过 `/etc/systemd/journald.conf.d/99-netfit-journal.conf` 永久锁定系统日志上限为 `1G` (`SystemMaxUse=1G`)，自动清理超标历史日志[cite: 9]。
 - **系统策略**：统一系统时区为 `Asia/Shanghai` (CST)，并在 `/etc/gai.conf` 中设置 IPv4 优先权重为 `100`[cite: 9]。
 
----
-
 ### 一键执行命令
 
 bash <(curl -sL [https://raw.githubusercontent.com/mouren1988/vps-init/main/netfit.sh](https://raw.githubusercontent.com/mouren1988/vps-init/main/netfit.sh))
+
+---
 
 # dnstool
 
@@ -33,16 +33,43 @@ Linux 落地机专属 SmartDNS 极速解析与守护脚本，防污染与微秒�
 
 # uninstall.sh
 
-适用于 Debian / Ubuntu Linux 的通用软件深度卸载脚本，可根据指定的软件关键词清理相关服务、进程、软件包、Docker / Podman 资源、配置文件及残留文件。
+Debian / Ubuntu Linux 通用软件深度卸载脚本，可根据指定的软件关键词清理相关服务、进程、软件包、Docker / Podman 资源及残留文件。
 
 ## 使用方法
 
-**1. 预览卸载内容**
+### 1. 预览卸载内容
+
+先检查脚本准备处理的对象，不执行实际卸载操作。
 
 ```bash
 sudo bash uninstall.sh <软件名> check
+```
 
-**2. 确认后执行卸载**
+### 2. 确认后执行卸载
+
+确认预览结果无误后，执行正式卸载。
 
 ```bash
 sudo bash uninstall.sh <软件名>
+```
+
+将 `<软件名>` 替换为需要卸载的软件关键词，例如 `komari`。
+
+## 主要功能
+
+- 清理 systemd、OpenRC、SysV 等服务及相关进程
+- 清理 Docker / Podman 容器、镜像、网络和卷
+- 清理相关软件包、配置文件及残留文件
+- 扫描本地文件系统，查找匹配的残留项
+- 提供 `check` 预览模式和卸载前确认机制
+- 对输入参数进行安全校验
+
+## 注意事项
+
+- 需要 root 权限运行。
+- 建议先使用 `check` 模式检查待处理项目。
+- 使用具有唯一性的**软件名称或关键词**，避免误匹配其他软件。
+- 深度清理可能删除相关文件、配置或数据，请提前备份并仔细核对。
+- 预览结果不代表能够完全准确地识别所有文件的归属。
+
+---
