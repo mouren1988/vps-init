@@ -18,3 +18,15 @@ Linux (Debian / Ubuntu) 服务器内核网络与系统基线优化脚本。
 ### 一键执行命令
 
 bash <(curl -sL [https://raw.githubusercontent.com/mouren1988/vps-init/main/netfit.sh](https://raw.githubusercontent.com/mouren1988/vps-init/main/netfit.sh))
+
+# dnstool
+
+Linux 落地机专属 SmartDNS 极速解析与守护脚本，防污染与微秒级响应优化。
+
+### 核心特性
+- **极速纯内存缓存**: 强制关闭磁盘持久化，开启自动预取保鲜 (`prefetch-domain`) 与过期缓存救急 (`serve-expired`)，实现高频域名 `0.01ms` 级解析。
+- **并发测速最优解**: 开启最快响应模式 (`fastest-response`)，并发请求多路优质上游，自动返回最低延迟 IP；禁用 IPv6 解析 (`force-AAAA-SOA`) 杜绝转圈卡顿。
+- **防篡改与防污染**: 支持一键切换 DoH 加密 DNS 隧道，并利用 `chattr +i` 永久锁定 `/etc/resolv.conf` 及 SmartDNS 配置文件，防止系统重启后被强制重置。
+- **交互式菜单与监控**: 内置可视化操作菜单支持无缝回滚，集成 `tcpdump` 一键监听本地 DNS 解析耗时及上游预取动态。
+
+---
