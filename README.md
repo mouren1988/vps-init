@@ -30,3 +30,19 @@ Linux 落地机专属 SmartDNS 极速解析与守护脚本，防污染与微秒�
 - **交互式菜单与监控**: 内置可视化操作菜单支持无缝回滚，集成 `tcpdump` 一键监听本地 DNS 解析耗时及上游预取动态。
 
 ---
+
+# uninstall.sh
+
+适用于 Debian / Ubuntu Linux 的通用软件深度卸载脚本，可根据指定的软件关键词清理相关服务、进程、软件包、Docker / Podman 资源、配置文件及残留文件。
+
+## 使用方法
+
+**1. 预览卸载内容**
+
+```bash
+sudo bash uninstall.sh <软件名> check
+
+**2. 确认后执行卸载**
+
+```bash
+sudo bash uninstall.sh <软件名>
